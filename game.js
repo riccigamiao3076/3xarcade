@@ -296,19 +296,19 @@ function processRemoteBattleshipFire(row, col) {
         }
     }
 
+    let isHit = false; // Track if this shot was a hit
     if (hitShip) {
         targetBoard[row][col] = 3; // Hit mark
         hitShip.hitCount++;
         if (hitShip.hitCount === hitShip.size) hitShip.wrecked = true;
         statusBS.innerText = `Player ${bsTurn} HIT!`;
+        isHit = true;
     } else {
         targetBoard[row][col] = 2; // Miss mark
         statusBS.innerText = `Player ${bsTurn} MISSED!`;
     }
 
     // --- FIXED WIN CONDITION ---
-    // Safety check: Ensure the enemy fleet is FULLY loaded (matching SHIP_SIZES length) 
-    // AND that every single one of those ships has been wrecked.
     let allSunk = enemyShips.length === SHIP_SIZES.length && enemyShips.every(ship => ship.wrecked);
 
     if (allSunk) {
@@ -316,8 +316,13 @@ function processRemoteBattleshipFire(row, col) {
         bsGameOver = true;
         bsPhase = 'gameover';
     } else {
-        // Toggle Turn safely
-        bsTurn = (bsTurn === 1) ? 2 : 1;
+        // MODIFICATION: Only change turns if the player missed
+        if (!isHit) {
+            bsTurn = (bsTurn === 1) ? 2 : 1;
+        } else {
+            statusBS.innerText += ` Player ${bsTurn} gets another shot!`;
+        }
+
         if (isOnline && bsPhase === 'play') {
             statusBS.innerText += (bsTurn === myPlayerNum) ? " Your Turn!" : " Friend's Turn.";
         }
