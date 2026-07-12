@@ -31,20 +31,21 @@ function generateShortRoomCode() {
 function initMultiplayer() {
     myRoomCode = generateShortRoomCode();
     
+    // Your own private, high-speed global TURN server configuration
     peer = new Peer(myRoomCode, {
         config: {
             'iceServers': [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 {
-                    urls: 'turn:openrelay.metered.ca:443',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:global.metered.ca:443', 
+                    username: '240ecc7b24128dd720d1da42',
+                    credential: '3AVhPN4mebvhCB+y'
                 },
                 {
-                    urls: 'turn:openrelay.metered.ca:80',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:global.metered.ca:80',
+                    username: '240ecc7b24128dd720d1da42',
+                    credential: '3AVhPN4mebvhCB'
                 }
             ]
         }
