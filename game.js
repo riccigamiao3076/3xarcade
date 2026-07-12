@@ -113,9 +113,27 @@ function sendNetworkAction(actionData) {
 }
 
 function handleNetworkData(data) {
-    if (data.type === 'sizeChange') {
-        document.getElementById(`size-${data.gameKey}`).value = data.size;
-        changeGameSize(data.gameKey, data.size, false);
+    if (data.type === 'requestSizeChange') {
+        // Friend is asking to change the size
+        let gameName = data.gameKey === 'battleship' ? 'Battleship' : (data.gameKey === 'connect4' ? 'Connect 4' : 'Dots & Boxes');
+        let choice = confirm(`Friend wants to change size of ${gameName} to ${data.size}x${data.size}?`);
+        
+        if (choice) {
+            // I accept, apply locally and tell the friend to apply too
+            applyGameSizeUpdate(data.gameKey, data.size);
+            sendNetworkAction({ type: 'sizeChangeApproved', gameKey: data.gameKey, size: data.size });
+        } else {
+            // I decline, tell friend to revert their select box dropdown UI
+            sendNetworkAction({ type: 'sizeChangeDenied', gameKey: data.gameKey });
+        }
+    } else if (data.type === 'sizeChangeApproved') {
+        // Friend agreed to the prompt, execute the layout change now
+        applyGameSizeUpdate(data.gameKey, data.size);
+    } else if (data.type === 'sizeChangeDenied') {
+        // Friend refused the change, reset select dropdown back to its current running state
+        let currentSize = getCurrentGameSize(data.gameKey);
+        document.getElementById(`size-${data.gameKey}`).value = currentSize;
+        alert("Friend declined to change the grid size.");
     } else if (data.type === 'bsSetup') {
         if (data.player === 1 && data.ships) {
             bsShips1 = data.ships;
@@ -141,8 +159,8 @@ function resetAllGames() {
     resetDots();
 }
 
-// Helper utility to handle 2-second imagery decays gracefully
-function flashResultOverlay(elementId, winnerNum) {
+// Utility to handle 2-second imagery visibility and then fire an automatic restart loop
+function flashResultOverlay(elementId, winnerNum, resetCallback) {
     const overlayImg = document.getElementById(elementId);
     if (!overlayImg) return;
     
@@ -155,12 +173,15 @@ function flashResultOverlay(elementId, winnerNum) {
 
     setTimeout(() => {
         overlayImg.style.display = 'none';
+        if (typeof resetCallback === "function") {
+            resetCallback();
+        }
     }, 2000);
 }
 
 
 // ==========================================
-// 1. FIXED & SYNCHRONIZED BATTLESHIP ENGINE
+// 1. BATTLESHIP ENGINE
 // ==========================================
 let bsSize = 6; 
 let bsBoard1, bsBoard2, bsShips1, bsShips2;
@@ -215,6 +236,8 @@ canvasBS.addEventListener('mousemove', function(e) {
 });
 
 canvasBS.addEventListener('click', function(e) {
+    if (bsGameOver) return; 
+
     const rect = canvasBS.getBoundingClientRect();
     let x = e.clientX - rect.left; let y = e.clientY - rect.top;
     const { cellSize, offsetX, offsetY } = getBsLayout();
@@ -252,8 +275,6 @@ canvasBS.addEventListener('click', function(e) {
 
         sendNetworkAction({ type: 'bsFire', row, col });
         processRemoteBattleshipFire(row, col);
-    } else if (bsGameOver) {
-        resetBattleship();
     }
     drawBattleship();
 });
@@ -319,7 +340,7 @@ function processRemoteBattleshipFire(row, col) {
         statusBS.innerText = `Player ${bsTurn} Wins Entire Match!`;
         bsGameOver = true;
         bsPhase = 'gameover';
-        flashResultOverlay('bs-overlay-img', bsTurn);
+        flashResultOverlay('bs-overlay-img', bsTurn, resetBattleship);
     } else {
         if (!isHit) {
             bsTurn = (bsTurn === 1) ? 2 : 1;
@@ -431,7 +452,7 @@ function drawBattleship() {
 
 
 // ==========================================
-// 2. DYNAMIC CONNECT 4 ENGINE
+// 2. CONNECT 4 ENGINE
 // ==========================================
 let c4Rows = 6, c4Cols = 6;
 let c4Grid;
@@ -447,6 +468,7 @@ function getC4Layout() {
 }
 
 canvasC4.addEventListener('click', function(e) {
+    if (c4GameOver) return;
     const rect = canvasC4.getBoundingClientRect(); let x = e.clientX - rect.left;
     const { radius, padding, centerOffsetX } = getC4Layout();
     let col = Math.floor((x - centerOffsetX) / (radius * 2 + padding));
@@ -454,8 +476,7 @@ canvasC4.addEventListener('click', function(e) {
 });
 
 function processConnect4Click(col, isLocalClick) {
-    if (c4GameOver) { resetConnect4(); return; }
-    if (col < 0 || col >= c4Cols) return;
+    if (c4GameOver || col < 0 || col >= c4Cols) return;
     if (isOnline && isLocalClick && c4Turn !== myPlayerNum) return;
 
     for (let r = c4Rows - 1; r >= 0; r--) {
@@ -466,7 +487,7 @@ function processConnect4Click(col, isLocalClick) {
             if (checkC4Win(r, col)) {
                 statusC4.innerText = `Player ${c4Turn} Wins!`; 
                 c4GameOver = true;
-                flashResultOverlay('c4-overlay-img', c4Turn);
+                flashResultOverlay('c4-overlay-img', c4Turn, resetConnect4);
             } else {
                 c4Turn = c4Turn === 1 ? 2 : 1;
                 statusC4.innerText = isOnline ? (c4Turn === myPlayerNum ? "Your Turn!" : "Waiting for friend...") : `Player ${c4Turn === 1 ? '1 (Red)' : '2 (Yellow)'} Turn`;
@@ -517,7 +538,7 @@ function drawConnect4() {
 
 
 // ==========================================
-// 3. DYNAMIC DOTS AND BOXES ENGINE
+// 3. DOTS AND BOXES ENGINE
 // ==========================================
 let dotsSize = 6; let hLines, vLines, boxes;
 let dotsScore1 = 0, dotsScore2 = 0; let dotsTurn = 1; let dotsGameOver = false;
@@ -530,12 +551,13 @@ function getDotsLayout() {
 }
 
 canvasDots.addEventListener('click', function(e) {
+    if (dotsGameOver) return;
     const rect = canvasDots.getBoundingClientRect(); let x = e.clientX - rect.left; let y = e.clientY - rect.top;
     processDotsClick(x, y, true);
 });
 
 function processDotsClick(x, y, isLocalClick) {
-    if (dotsGameOver) { resetDots(); return; }
+    if (dotsGameOver) return;
     if (isOnline && isLocalClick && dotsTurn !== myPlayerNum) return;
 
     const { spacing, startX, startY, thresh } = getDotsLayout();
@@ -588,14 +610,13 @@ function updateDots() {
         
         if (dotsScore1 === dotsScore2) {
             statusDots.innerText = `Tie Game! (${dotsScore1}-${dotsScore2})`;
-            // In case of ties, default to show winning image to current user as a friendly gesture
             winnerPlayerNum = myPlayerNum; 
         } else {
             winnerPlayerNum = dotsScore1 > dotsScore2 ? 1 : 2;
             statusDots.innerText = `P${winnerPlayerNum} Wins! (${Math.max(dotsScore1, dotsScore2)}-${Math.min(dotsScore1, dotsScore2)})`;
         }
         
-        flashResultOverlay('dots-overlay-img', winnerPlayerNum);
+        flashResultOverlay('dots-overlay-img', winnerPlayerNum, resetDots);
     } else {
         statusDots.innerText = `P1: ${dotsScore1} | P2: ${dotsScore2} -> Turn: P${dotsTurn}`;
     }
@@ -651,10 +672,36 @@ function drawDots() {
 
 
 // ==========================================
-// CENTRALIZED SIZE ROUTER
+// MUTUAL SIZE SELECTION DISPATCH ROUTER
 // ==========================================
-function changeGameSize(gameKey, size, isLocalAction) {
-    if (isLocalAction) { sendNetworkAction({ type: 'sizeChange', gameKey, size }); }
+function changeGameSize(gameKey, size) {
+    if (isOnline) {
+        // Self-prompt before issuing the negotiation payload
+        let gameName = gameKey === 'battleship' ? 'Battleship' : (gameKey === 'connect4' ? 'Connect 4' : 'Dots & Boxes');
+        let selfConfirm = confirm(`Change size of ${gameName} to ${size}x${size}? This requires friend confirmation.`);
+        
+        if (selfConfirm) {
+            sendNetworkAction({ type: 'requestSizeChange', gameKey, size });
+        } else {
+            // Revert dropdown index state back to the actively running value
+            let activeRunningSize = getCurrentGameSize(gameKey);
+            document.getElementById(`size-${gameKey}`).value = activeRunningSize;
+        }
+    } else {
+        // Sandbox environment, apply change instantly
+        applyGameSizeUpdate(gameKey, size);
+    }
+}
+
+function getCurrentGameSize(gameKey) {
+    if (gameKey === 'battleship') return bsSize;
+    if (gameKey === 'connect4') return c4Rows; 
+    if (gameKey === 'dots') return dotsSize;
+    return 6;
+}
+
+function applyGameSizeUpdate(gameKey, size) {
+    document.getElementById(`size-${gameKey}`).value = size;
     if (gameKey === 'battleship') { bsSize = size; resetBattleship(); } 
     else if (gameKey === 'connect4') { c4Rows = size; c4Cols = size; resetConnect4(); } 
     else if (gameKey === 'dots') { dotsSize = size; resetDots(); }
