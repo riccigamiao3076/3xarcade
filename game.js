@@ -18,7 +18,7 @@ let myPlayerNum = 1;
 let isOnline = false;
 let myRoomCode = "";
 
-// Generate a short 5-character ID code
+// Generate a short 5-character ID code for cleaner sharing
 function generateShortRoomCode() {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let result = "";
@@ -31,8 +31,9 @@ function generateShortRoomCode() {
 function initMultiplayer() {
     myRoomCode = generateShortRoomCode();
     
-    // Your own private, high-speed global TURN server configuration
-    peer = new Peer(myRoomCode, {
+    // Leaving the ID blank inside Peer() lets the global cloud broker assign a perfectly unique connection hash,
+    // while your custom TURN configurations handle the cross-country router routing.
+    peer = new Peer({
         config: {
             'iceServers': [
                 { urls: 'stun:stun.l.google.com:19302' },
@@ -45,13 +46,14 @@ function initMultiplayer() {
                 {
                     urls: 'turn:global.metered.ca:80',
                     username: '240ecc7b24128dd720d1da42',
-                    credential: '3AVhPN4mebvhCB'
+                    credential: '3AVhPN4mebvhCB+y'
                 }
             ]
         }
     });
     
     peer.on('open', (id) => {
+        // We link your unique ID to the display interface
         document.getElementById('my-peer-id').innerText = id;
         document.getElementById('share-btn').style.display = 'inline-block';
         document.getElementById('connection-status').innerText = "Status: Waiting for friend...";
@@ -61,12 +63,13 @@ function initMultiplayer() {
         if (inviteRoom) {
             document.getElementById('remote-peer-id').value = inviteRoom;
             document.getElementById('connection-status').innerText = "Auto-joining room...";
-            setTimeout(() => { connectToFriend(inviteRoom); }, 500); 
+            setTimeout(() => { connectToFriend(inviteRoom); }, 800); 
         }
     });
 
     peer.on('error', (err) => {
-        if (err.type === 'unavailable-id') { initMultiplayer(); }
+        console.error("PeerJS Error Type:", err.type, err);
+        document.getElementById('connection-status').innerText = `Error: ${err.type}`;
     });
 
     peer.on('connection', (incomingConn) => {
@@ -78,7 +81,10 @@ function initMultiplayer() {
 }
 
 function copyInviteLink() {
-    const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${myRoomCode}`;
+    const currentId = document.getElementById('my-peer-id').innerText;
+    if (!currentId || currentId === "---") return alert("Connection not initialized yet!");
+    
+    const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${currentId}`;
     navigator.clipboard.writeText(inviteUrl).then(() => {
         const shareBtn = document.getElementById('share-btn');
         shareBtn.innerText = "✅ Link Copied!";
@@ -87,11 +93,13 @@ function copyInviteLink() {
 }
 
 function connectToFriend(targetId) {
-    const remoteId = targetId || document.getElementById('remote-peer-id').value.trim().toUpperCase();
-    if (!remoteId) return alert("Please enter a room code first!");
+    const remoteId = targetId || document.getElementById('remote-peer-id').value.trim();
+    if (!remoteId) return alert("Please enter a connection code first!");
     
-    document.getElementById('connection-status').innerText = "Connecting...";
-    conn = peer.connect(remoteId);
+    document.getElementById('connection-status').innerText = "Connecting across networks...";
+    conn = peer.connect(remoteId, {
+        reliable: true
+    });
     myPlayerNum = 2; 
     setupConnectionHandlers();
 }
@@ -122,6 +130,10 @@ function setupConnectionHandlers() {
         document.getElementById('connection-status').innerText = "Friend disconnected.";
         document.getElementById('connection-status').style.color = "#ea2e49";
         document.getElementById('join-section').style.display = 'flex';
+    });
+    
+    conn.on('error', (err) => {
+        console.error("Connection data channel error:", err);
     });
 }
 
