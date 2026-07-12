@@ -30,7 +30,18 @@ function generateShortRoomCode() {
 
 function initMultiplayer() {
     myRoomCode = generateShortRoomCode();
-    peer = new Peer(myRoomCode);
+    
+    // Explicitly added public Google STUN servers to bypass home router NATs
+    // and enable connections between players on entirely different networks.
+    peer = new Peer(myRoomCode, {
+        config: {
+            'iceServers': [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' }
+            ]
+        }
+    });
     
     peer.on('open', (id) => {
         document.getElementById('my-peer-id').innerText = id;
@@ -114,23 +125,18 @@ function sendNetworkAction(actionData) {
 
 function handleNetworkData(data) {
     if (data.type === 'requestSizeChange') {
-        // Friend is asking to change the size
         let gameName = data.gameKey === 'battleship' ? 'Battleship' : (data.gameKey === 'connect4' ? 'Connect 4' : 'Dots & Boxes');
         let choice = confirm(`Friend wants to change size of ${gameName} to ${data.size}x${data.size}?`);
         
         if (choice) {
-            // I accept, apply locally and tell the friend to apply too
             applyGameSizeUpdate(data.gameKey, data.size);
             sendNetworkAction({ type: 'sizeChangeApproved', gameKey: data.gameKey, size: data.size });
         } else {
-            // I decline, tell friend to revert their select box dropdown UI
             sendNetworkAction({ type: 'sizeChangeDenied', gameKey: data.gameKey });
         }
     } else if (data.type === 'sizeChangeApproved') {
-        // Friend agreed to the prompt, execute the layout change now
         applyGameSizeUpdate(data.gameKey, data.size);
     } else if (data.type === 'sizeChangeDenied') {
-        // Friend refused the change, reset select dropdown back to its current running state
         let currentSize = getCurrentGameSize(data.gameKey);
         document.getElementById(`size-${data.gameKey}`).value = currentSize;
         alert("Friend declined to change the grid size.");
@@ -159,7 +165,6 @@ function resetAllGames() {
     resetDots();
 }
 
-// Utility to handle 2-second imagery visibility and then fire an automatic restart loop
 function flashResultOverlay(elementId, winnerNum, resetCallback) {
     const overlayImg = document.getElementById(elementId);
     if (!overlayImg) return;
@@ -676,19 +681,16 @@ function drawDots() {
 // ==========================================
 function changeGameSize(gameKey, size) {
     if (isOnline) {
-        // Self-prompt before issuing the negotiation payload
         let gameName = gameKey === 'battleship' ? 'Battleship' : (gameKey === 'connect4' ? 'Connect 4' : 'Dots & Boxes');
         let selfConfirm = confirm(`Change size of ${gameName} to ${size}x${size}? This requires friend confirmation.`);
         
         if (selfConfirm) {
             sendNetworkAction({ type: 'requestSizeChange', gameKey, size });
         } else {
-            // Revert dropdown index state back to the actively running value
             let activeRunningSize = getCurrentGameSize(gameKey);
             document.getElementById(`size-${gameKey}`).value = activeRunningSize;
         }
     } else {
-        // Sandbox environment, apply change instantly
         applyGameSizeUpdate(gameKey, size);
     }
 }
