@@ -31,6 +31,57 @@ function generateShortRoomCode() {
 function initMultiplayer() {
     myRoomCode = generateShortRoomCode();
     
+    // Upgraded cross-network configuration with absolute fallback handling
+    peer = new Peer({
+        config: {
+            'iceServers': [
+                { urls: 'stun:stun.l.google.com:19302', url: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302', url: 'stun:stun1.l.google.com:19302' },
+                {
+                    urls: [
+                        'turn:global.metered.ca:443?transport=tcp',
+                        'turn:global.metered.ca:443',
+                        'turn:global.metered.ca:80'
+                    ],
+                    url: 'turn:global.metered.ca:443?transport=tcp',
+                    username: '240ecc7b24128dd720d1da42',
+                    credential: '3AVhPN4mebvhCB+y'
+                }
+            ],
+            'iceTransportPolicy': 'all'
+        }
+    });
+    
+    peer.on('open', (id) => {
+        document.getElementById('my-peer-id').innerText = id;
+        document.getElementById('share-btn').style.display = 'inline-block';
+        document.getElementById('connection-status').innerText = "Status: Waiting for friend...";
+        
+        const urlParams = new URLSearchParams(window.location.search);
+        const inviteRoom = urlParams.get('room');
+        if (inviteRoom) {
+            document.getElementById('remote-peer-id').value = inviteRoom;
+            document.getElementById('connection-status').innerText = "Auto-joining room...";
+            setTimeout(() => { connectToFriend(inviteRoom); }, 1000); // Slight delay for network registration
+        }
+    });
+
+    peer.on('error', (err) => {
+        console.error("PeerJS Global Error:", err.type, err);
+        document.getElementById('connection-status').innerText = `Error: ${err.type}`;
+    });
+
+    peer.on('connection', (incomingConn) => {
+        if (conn) return; 
+        conn = incomingConn;
+        myPlayerNum = 1; 
+        setupConnectionHandlers();
+    });
+}
+
+function initMultiplayer() {
+    myRoomCode = generateShortRoomCode();
+    
     // Leaving the ID blank inside Peer() lets the global cloud broker assign a perfectly unique connection hash,
     // while your custom TURN configurations handle the cross-country router routing.
     peer = new Peer({
