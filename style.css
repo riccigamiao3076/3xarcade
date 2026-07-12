@@ -18,7 +18,6 @@ body {
     width: 100%;
 }
 
-/* Responsive fallback for smaller screens / laptops */
 @media (max-width: 1000px) {
     .dashboard-container {
         grid-template-columns: 1fr;

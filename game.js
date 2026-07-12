@@ -86,7 +86,6 @@ function setupConnectionHandlers() {
         resetAllGames();
     }
 
-    // CRITICAL FIX: If connection is already open, fire the setup immediately
     if (conn.open) {
         handleOpenConnection();
     } else {
@@ -142,13 +141,30 @@ function resetAllGames() {
     resetDots();
 }
 
+// Helper utility to handle 2-second imagery decays gracefully
+function flashResultOverlay(elementId, winnerNum) {
+    const overlayImg = document.getElementById(elementId);
+    if (!overlayImg) return;
+    
+    if (winnerNum === myPlayerNum) {
+        overlayImg.src = 'winner.png';
+    } else {
+        overlayImg.src = 'loser.png';
+    }
+    overlayImg.style.display = 'block';
+
+    setTimeout(() => {
+        overlayImg.style.display = 'none';
+    }, 2000);
+}
+
 
 // ==========================================
 // 1. FIXED & SYNCHRONIZED BATTLESHIP ENGINE
 // ==========================================
 let bsSize = 6; 
 let bsBoard1, bsBoard2, bsShips1, bsShips2;
-let bsPhase = 'setup'; // 'setup', 'play', 'gameover'
+let bsPhase = 'setup'; 
 let p1Ready = false, p2Ready = false;
 let bsTurn = 1;
 let bsGameOver = false;
@@ -159,7 +175,6 @@ let currentDir = 'H';
 let mouseHover = { row: -1, col: -1 };
 let localPlacingShips = [];
 
-// Interaction Listeners
 window.addEventListener('keydown', function(e) {
     if (e.key === 'r' || e.key === 'R') { currentDir = currentDir === 'H' ? 'V' : 'H'; drawBattleship(); }
 });
@@ -218,7 +233,6 @@ canvasBS.addEventListener('click', function(e) {
             if (currentShipIndex < SHIP_SIZES.length) {
                 statusBS.innerText = `Place size ${SHIP_SIZES[currentShipIndex]} ship`;
             } else {
-                // Save out our ships into our personal player slots immediately
                 if (myPlayerNum === 1) { 
                     bsShips1 = [...localPlacingShips]; 
                     p1Ready = true; 
@@ -226,19 +240,15 @@ canvasBS.addEventListener('click', function(e) {
                     bsShips2 = [...localPlacingShips]; 
                     p2Ready = true; 
                 }
-                
-                // Broadcast it across the internet
                 sendNetworkAction({ type: 'bsSetup', player: myPlayerNum, ships: localPlacingShips });
-                
-                // Re-evaluate game states
                 checkBattleshipPhases();
             }
         }
     } else if (bsPhase === 'play') {
-        if (isOnline && bsTurn !== myPlayerNum) return; // Guard turn tracking
+        if (isOnline && bsTurn !== myPlayerNum) return;
 
         let targetBoard = (bsTurn === 1) ? bsBoard2 : bsBoard1;
-        if (targetBoard[row][col] > 0) return; // Guard duplicate fires
+        if (targetBoard[row][col] > 0) return;
 
         sendNetworkAction({ type: 'bsFire', row, col });
         processRemoteBattleshipFire(row, col);
@@ -258,19 +268,14 @@ function checkBattleshipPhases() {
             statusBS.innerText = "P1 Turn: Click Grid to Fire!";
         }
     } else {
-        // If both browsers have the fleet layouts, start the match
         if (hasP1Fleet && hasP2Fleet) {
-            p1Ready = true;
-            p2Ready = true;
-            bsPhase = 'play';
-            bsTurn = 1;
+            p1Ready = true; p2Ready = true;
+            bsPhase = 'play'; bsTurn = 1;
             statusBS.innerText = (myPlayerNum === 1) ? "Your Turn! Attack enemy grid." : "Enemy turn. They are aiming...";
         } else {
             let iAmReady = (myPlayerNum === 1 && p1Ready) || (myPlayerNum === 2 && p2Ready);
             if (iAmReady) {
                 statusBS.innerText = "Waiting for friend setup...";
-                
-                // Anti-stuck backup packet: Remind the friend of our fleet positions
                 let myShips = (myPlayerNum === 1) ? bsShips1 : bsShips2;
                 if (myShips && myShips.length === SHIP_SIZES.length) {
                     sendNetworkAction({ type: 'bsSetup', player: myPlayerNum, ships: myShips });
@@ -296,33 +301,32 @@ function processRemoteBattleshipFire(row, col) {
         }
     }
 
-    let isHit = false; // Track if this shot was a hit
+    let isHit = false;
     if (hitShip) {
-        targetBoard[row][col] = 3; // Hit mark
+        targetBoard[row][col] = 3; 
         hitShip.hitCount++;
         if (hitShip.hitCount === hitShip.size) hitShip.wrecked = true;
         statusBS.innerText = `Player ${bsTurn} HIT!`;
         isHit = true;
     } else {
-        targetBoard[row][col] = 2; // Miss mark
+        targetBoard[row][col] = 2; 
         statusBS.innerText = `Player ${bsTurn} MISSED!`;
     }
 
-    // --- FIXED WIN CONDITION ---
     let allSunk = enemyShips.length === SHIP_SIZES.length && enemyShips.every(ship => ship.wrecked);
 
     if (allSunk) {
         statusBS.innerText = `Player ${bsTurn} Wins Entire Match!`;
         bsGameOver = true;
         bsPhase = 'gameover';
+        flashResultOverlay('bs-overlay-img', bsTurn);
     } else {
-        // MODIFICATION: Only change turns if the player missed
         if (!isHit) {
             bsTurn = (bsTurn === 1) ? 2 : 1;
         } else {
             statusBS.innerText += ` Player ${bsTurn} gets another shot!`;
         }
-
+        
         if (isOnline && bsPhase === 'play') {
             statusBS.innerText += (bsTurn === myPlayerNum) ? " Your Turn!" : " Friend's Turn.";
         }
@@ -352,6 +356,10 @@ function resetBattleship() {
     p1Ready = false; p2Ready = false;
     bsPhase = 'setup'; currentShipIndex = 0; bsTurn = 1; bsGameOver = false;
     statusBS.innerText = `Place size ${SHIP_SIZES[0]} ship (Press R to rotate)`;
+    
+    const overlayImg = document.getElementById('bs-overlay-img');
+    if (overlayImg) overlayImg.style.display = 'none';
+    
     drawBattleship();
 }
 
@@ -372,7 +380,6 @@ function drawBattleship() {
     ctxBS.clearRect(0, 0, canvasBS.width, canvasBS.height);
     const { cellSize, offsetX, offsetY } = getBsLayout();
 
-    // 1. Draw Grid Mesh Lines
     for (let r = 0; r < bsSize; r++) {
         for (let c = 0; c < bsSize; c++) {
             ctxBS.strokeStyle = "#2c3e50"; ctxBS.lineWidth = 1;
@@ -380,7 +387,6 @@ function drawBattleship() {
         }
     }
 
-    // 2. SETUP PHASE: Show local placements and placement preview shadows
     if (bsPhase === 'setup') {
         localPlacingShips.forEach(ship => {
             drawCruiseShip(ctxBS, offsetX + ship.col*cellSize, offsetY + ship.row*cellSize, ship.size, ship.dir, "#7f8c8d", false);
@@ -392,33 +398,29 @@ function drawBattleship() {
             drawCruiseShip(ctxBS, offsetX + mouseHover.col*cellSize, offsetY + mouseHover.row*cellSize, size, currentDir, color, false);
         }
     } 
-    // 3. PLAYING & GAMEOVER PHASES: Clean Radar Screens
     else {
         let viewingTargetBoard = (myPlayerNum === 1) ? bsBoard2 : bsBoard1;
         let enemyShips = (myPlayerNum === 1) ? bsShips2 : bsShips1;
 
-        // Draw Enemy Ships ONLY if they are completely sunk OR if the game is completely over
         if (enemyShips) {
             enemyShips.forEach(ship => {
                 if (ship.wrecked || bsGameOver) {
-                    // Show fully sunken ships as a solid dark red outline trophy
                     drawCruiseShip(ctxBS, offsetX + ship.col*cellSize, offsetY + ship.row*cellSize, ship.size, ship.dir, "#991b1b", true);
                 }
             });
         }
 
-        // Draw all your recorded moves onto the empty arena layout
         for (let r = 0; r < bsSize; r++) {
             for (let c = 0; c < bsSize; c++) {
                 let cx = offsetX + c * cellSize + cellSize/2;
                 let cy = offsetY + r * cellSize + cellSize/2;
                 let val = viewingTargetBoard[r][c];
                 
-                if (val === 2) { // Miss peg (Blue Ring)
+                if (val === 2) { 
                     ctxBS.strokeStyle = "#2980b9"; ctxBS.lineWidth = 3;
                     ctxBS.beginPath(); ctxBS.arc(cx, cy, cellSize/5, 0, Math.PI*2); ctxBS.stroke();
                 }
-                if (val === 3) { // Hit peg (Solid Red Dot)
+                if (val === 3) { 
                     ctxBS.fillStyle = "#e74c3c";
                     ctxBS.beginPath(); ctxBS.arc(cx, cy, cellSize/4, 0, Math.PI*2); ctxBS.fill();
                 }
@@ -462,7 +464,9 @@ function processConnect4Click(col, isLocalClick) {
             if (isLocalClick) sendNetworkAction({ type: 'c4Click', col });
 
             if (checkC4Win(r, col)) {
-                statusC4.innerText = `Player ${c4Turn} Wins!`; c4GameOver = true;
+                statusC4.innerText = `Player ${c4Turn} Wins!`; 
+                c4GameOver = true;
+                flashResultOverlay('c4-overlay-img', c4Turn);
             } else {
                 c4Turn = c4Turn === 1 ? 2 : 1;
                 statusC4.innerText = isOnline ? (c4Turn === myPlayerNum ? "Your Turn!" : "Waiting for friend...") : `Player ${c4Turn === 1 ? '1 (Red)' : '2 (Yellow)'} Turn`;
@@ -488,6 +492,10 @@ function resetConnect4() {
     c4Grid = Array(c4Rows).fill().map(() => Array(c4Cols).fill(0));
     c4Turn = 1; c4GameOver = false;
     statusC4.innerText = isOnline ? (myPlayerNum === 1 ? "Your Turn (Red)" : "Waiting for P1...") : "Player 1 (Red) Turn";
+    
+    const overlayImg = document.getElementById('c4-overlay-img');
+    if (overlayImg) overlayImg.style.display = 'none';
+    
     drawConnect4();
 }
 
@@ -576,8 +584,18 @@ function checkDotsBox() {
 function updateDots() {
     if (dotsScore1 + dotsScore2 === (dotsSize-1)*(dotsSize-1)) {
         dotsGameOver = true;
-        if (dotsScore1 === dotsScore2) statusDots.innerText = `Tie Game! (${dotsScore1}-${dotsScore2})`;
-        else statusDots.innerText = `P${dotsScore1 > dotsScore2 ? 1 : 2} Wins! (${Math.max(dotsScore1, dotsScore2)}-${Math.min(dotsScore1, dotsScore2)})`;
+        let winnerPlayerNum = 1;
+        
+        if (dotsScore1 === dotsScore2) {
+            statusDots.innerText = `Tie Game! (${dotsScore1}-${dotsScore2})`;
+            // In case of ties, default to show winning image to current user as a friendly gesture
+            winnerPlayerNum = myPlayerNum; 
+        } else {
+            winnerPlayerNum = dotsScore1 > dotsScore2 ? 1 : 2;
+            statusDots.innerText = `P${winnerPlayerNum} Wins! (${Math.max(dotsScore1, dotsScore2)}-${Math.min(dotsScore1, dotsScore2)})`;
+        }
+        
+        flashResultOverlay('dots-overlay-img', winnerPlayerNum);
     } else {
         statusDots.innerText = `P1: ${dotsScore1} | P2: ${dotsScore2} -> Turn: P${dotsTurn}`;
     }
@@ -590,6 +608,10 @@ function resetDots() {
     boxes = Array(dotsSize - 1).fill().map(() => Array(dotsSize - 1).fill(0));
     dotsScore1 = 0; dotsScore2 = 0; dotsTurn = 1; dotsGameOver = false;
     statusDots.innerText = "P1: Draw a line";
+    
+    const overlayImg = document.getElementById('dots-overlay-img');
+    if (overlayImg) overlayImg.style.display = 'none';
+    
     drawDots();
 }
 
